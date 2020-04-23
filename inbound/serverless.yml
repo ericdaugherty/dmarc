@@ -16,6 +16,10 @@ provider:
       Action:
         - ses:SendEmail
       Resource: "*"
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+      Resource: "*"
 
 package:
   exclude:
@@ -28,6 +32,7 @@ functions:
     handler: inbound
     memorySize: 128
     environment:
+      TABLENAME: dmarcReports
       MAILFROM: eric@ericdaugherty.com
       MAILTO: eric@ericdaugherty.com
     events:
@@ -56,3 +61,27 @@ resources:
               Condition:
                 StringEquals:
                   "aws:Referer": { Ref: AWS::AccountId }
+    DmarcReportTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: dmarcReports
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: orgName
+            AttributeType: S
+          - AttributeName: reportId
+            AttributeType: S
+          - AttributeName: beginTime
+            AttributeType: N
+        KeySchema:
+          - AttributeName: reportId
+            KeyType: HASH
+          - AttributeName: orgName
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: beginTime
+            KeySchema:
+              - AttributeName: beginTime
+                KeyType: HASH
+            Projection:
+              ProjectionType: KEYS_ONLY

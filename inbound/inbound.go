@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/DusanKasan/parsemail"
@@ -20,13 +21,28 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 )
 
 var getEmailFunc func(context.Context, string, string) (*parsemail.Email, error)
+var dynamoDBTableName string
 var mailFrom string
 var mailTo string
+
+type dbEntry struct {
+	S3Bucket         string `json:"s3bucket"`
+	S3Key            string `json:"s3key"`
+	OrgName          string `json:"orgName"`
+	ReportID         string `json:"reportId"`
+	BeginTime        int    `json:"beginTime"`
+	EndTime          int    `json:"endTime"`
+	CountAccepted    int    `json:"countAccepted"`
+	CountQuarantined int    `json:"countQuarantined"`
+	CountRejected    int    `json:"countRejected"`
+}
 
 func handler(ctx context.Context, s3Event events.S3Event) {
 
@@ -52,12 +68,16 @@ func handler(ctx context.Context, s3Event events.S3Event) {
 			fmt.Printf("Error processing email. Unable to decode XML. %v\n", err)
 			return
 		}
-		err = processReport(ctx, f)
+
+		err = storeReport(ctx, s3.Bucket.Name, s3.Object.Key, f)
 		if err != nil {
 			fmt.Printf("Error processing email. Unable to process report data. %v\n", err)
 		}
 
-		// TODO: Delete file from S3
+		err = sendNotification(ctx, f)
+		if err != nil {
+			fmt.Printf("Error processing email. Unable to process report data. %v\n", err)
+		}
 	}
 }
 
@@ -145,7 +165,68 @@ func decodeXML(data []byte) (f Feedback, err error) {
 	return
 }
 
-func processReport(ctx context.Context, f Feedback) (err error) {
+func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback) (err error) {
+
+	var countAccepted, countQuarantined, countRejected int
+	for _, record := range f.Record {
+		c, err := strconv.Atoi(record.Row.Count)
+		if err != nil {
+			c = 1
+		}
+		switch record.Row.PolicyEvaluated.Disposition {
+		case "quarantine":
+			countQuarantined += c
+		case "reject":
+			countRejected += c
+		case "none":
+			countAccepted += c
+		default:
+			// Ignore Unknowns here.
+			fmt.Printf("Unknown disposition encountered: %v\n", record.Row.PolicyEvaluated.Disposition)
+		}
+	}
+
+	beginTime, err := strconv.Atoi(f.ReportMetadata.DateRange.Begin)
+	if err != nil {
+		return
+	}
+	endTime, err := strconv.Atoi(f.ReportMetadata.DateRange.End)
+
+	entry := dbEntry{
+		S3Bucket:         s3Bucket,
+		S3Key:            s3Key,
+		OrgName:          f.ReportMetadata.OrgName,
+		ReportID:         f.ReportMetadata.ReportID,
+		BeginTime:        beginTime,
+		EndTime:          endTime,
+		CountAccepted:    countAccepted,
+		CountQuarantined: countQuarantined,
+		CountRejected:    countRejected,
+	}
+
+	cfg, err := external.LoadDefaultAWSConfig()
+	if err != nil {
+		return
+	}
+
+	svc := dynamodb.New(cfg)
+	av, err := dynamodbattribute.MarshalMap(entry)
+	if err != nil {
+		return
+	}
+
+	input := &dynamodb.PutItemInput{
+		Item:      av,
+		TableName: aws.String(dynamoDBTableName),
+	}
+
+	req := svc.PutItemRequest(input)
+	_, err = req.Send(ctx)
+
+	return
+}
+
+func sendNotification(ctx context.Context, f Feedback) (err error) {
 
 	message := ""
 
@@ -159,7 +240,6 @@ func processReport(ctx context.Context, f Feedback) (err error) {
 			fmt.Printf("Processed record with reject.\n")
 		case "none":
 			// success path, ignore.
-			fmt.Printf("Processed record with no issues.\n")
 		default:
 			return errors.New("unknown disposition " + record.Row.PolicyEvaluated.Disposition)
 		}
@@ -167,7 +247,7 @@ func processReport(ctx context.Context, f Feedback) (err error) {
 
 	if message != "" {
 		body := fmt.Sprintf("Processed Records with issues.\n\n%v", message)
-		sendEmail(ctx, "DMARC Issues Detected", body)
+		return sendEmail(ctx, "DMARC Issues Detected", body)
 	}
 
 	return nil
@@ -221,6 +301,7 @@ func main() {
 
 	getEmailFunc = getMailFromS3
 
+	dynamoDBTableName = os.Getenv("TABLENAME")
 	mailFrom = os.Getenv("MAILFROM")
 	mailTo = os.Getenv("MAILTO")
 

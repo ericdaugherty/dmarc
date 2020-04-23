@@ -11,3 +11,5 @@ This package provides a Lambda method to process incoming DMARC reports via S3. 
 - Update your domain DMARC entry with the correct mailto: so reports are routed to your SES domain.
 
 All incoming email to your SES Address will be processed and you will receive an email any time any of your messaged are marked 'quarantine' or 'reject'.
+
+All incoming email is also stored in a DynamoDB table for future reporting.
