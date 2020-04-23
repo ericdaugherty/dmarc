@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/DusanKasan/parsemail"
 
@@ -33,6 +34,8 @@ var mailFrom string
 var mailTo string
 
 type dbEntry struct {
+	GMTDate          string `json:"gmtDate"`
+	OrgReportID      string `json:"orgReportId"`
 	S3Bucket         string `json:"s3bucket"`
 	S3Key            string `json:"s3key"`
 	OrgName          string `json:"orgName"`
@@ -42,6 +45,7 @@ type dbEntry struct {
 	CountAccepted    int    `json:"countAccepted"`
 	CountQuarantined int    `json:"countQuarantined"`
 	CountRejected    int    `json:"countRejected"`
+	XML              string `json:"xml"`
 }
 
 func handler(ctx context.Context, s3Event events.S3Event) {
@@ -69,7 +73,7 @@ func handler(ctx context.Context, s3Event events.S3Event) {
 			return
 		}
 
-		err = storeReport(ctx, s3.Bucket.Name, s3.Object.Key, f)
+		err = storeReport(ctx, s3.Bucket.Name, s3.Object.Key, f, fd)
 		if err != nil {
 			fmt.Printf("Error processing email. Unable to process report data. %v\n", err)
 		}
@@ -165,7 +169,7 @@ func decodeXML(data []byte) (f Feedback, err error) {
 	return
 }
 
-func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback) (err error) {
+func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback, fd []byte) (err error) {
 
 	var countAccepted, countQuarantined, countRejected int
 	for _, record := range f.Record {
@@ -191,8 +195,15 @@ func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback) (err e
 		return
 	}
 	endTime, err := strconv.Atoi(f.ReportMetadata.DateRange.End)
+	if err != nil {
+		return
+	}
+
+	unixBeginTime := time.Unix(int64(beginTime), 0).UTC()
 
 	entry := dbEntry{
+		GMTDate:          unixBeginTime.Format("2006-01-02"),
+		OrgReportID:      f.ReportMetadata.OrgName + ":" + f.ReportMetadata.ReportID,
 		S3Bucket:         s3Bucket,
 		S3Key:            s3Key,
 		OrgName:          f.ReportMetadata.OrgName,
@@ -202,6 +213,7 @@ func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback) (err e
 		CountAccepted:    countAccepted,
 		CountQuarantined: countQuarantined,
 		CountRejected:    countRejected,
+		XML:              string(fd),
 	}
 
 	cfg, err := external.LoadDefaultAWSConfig()

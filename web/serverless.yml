@@ -1,0 +1,31 @@
+# https://serverless.com/framework/docs/providers/aws/guide/serverless.yml/
+service: dmarc-web
+
+provider:
+  name: aws
+  runtime: go1.x
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:GetItem
+        - dynamodb:Query
+        - dynamodb:Scan
+      Resource: "*"
+
+package:
+  exclude:
+    - ./**
+  include:
+    - ./lambda
+
+functions:
+  web:
+    handler: lambda
+    memorySize: 128
+    events:
+      - http:
+          method: GET
+          path: /
+      - http:
+          method: GET
+          path: /{any+}

@@ -1,2 +1,5 @@
+/inbound/inbound
+/web/lambda
+/web/pkged.go
 bin/
 .serverless/

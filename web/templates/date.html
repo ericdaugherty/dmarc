@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+
+</head>
+
+<body>
+    <div>
+        <h1>DMARC Report - {{.date}}</h1>
+        {{ range .entries }}<tr>
+            <div>
+                <h2>{{.OrgName}}</h2>
+                <div>Report Id: {{.ReportID}}</div>
+                <div>Begin Time: {{FormatUnixDate .BeginTime}}</div>
+                <div>End Time: {{FormatUnixDate .EndTime}}</div>
+                <table>
+                    <tr>
+                        <th>Accepted</th>
+                        <th>Quarantine</th>
+                        <th>Reject</th>
+                    </tr>
+                    <tr>
+                        <td>{{.CountAccepted}}</td>
+                        <td>{{.CountQuarantined}}</td>
+                        <td>{{.CountRejected}}</td>
+                    </tr>
+                </table>
+                <pre>{{CleanupXML .XML}}</pre>
+            </div>
+            {{ end }}
+    </div>
+</body>
+
+</html>

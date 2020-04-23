@@ -67,21 +67,12 @@ resources:
         TableName: dmarcReports
         BillingMode: PAY_PER_REQUEST
         AttributeDefinitions:
-          - AttributeName: orgName
+          - AttributeName: gmtDate
             AttributeType: S
-          - AttributeName: reportId
+          - AttributeName: orgReportId
             AttributeType: S
-          - AttributeName: beginTime
-            AttributeType: N
         KeySchema:
-          - AttributeName: reportId
+          - AttributeName: gmtDate
             KeyType: HASH
-          - AttributeName: orgName
+          - AttributeName: orgReportId
             KeyType: RANGE
-        GlobalSecondaryIndexes:
-          - IndexName: beginTime
-            KeySchema:
-              - AttributeName: beginTime
-                KeyType: HASH
-            Projection:
-              ProjectionType: KEYS_ONLY
