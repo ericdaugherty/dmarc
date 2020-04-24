@@ -4,6 +4,7 @@ service: dmarc-web
 provider:
   name: aws
   runtime: go1.x
+  endpointType: regional
   iamRoleStatements:
     - Effect: Allow
       Action:
