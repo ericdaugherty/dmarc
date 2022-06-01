@@ -21,11 +21,12 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
+	"github.com/aws/aws-sdk-go-v2/service/ses/types"
 )
 
 var getEmailFunc func(context.Context, string, string) (*parsemail.Email, error)
@@ -86,18 +87,17 @@ func handler(ctx context.Context, s3Event events.S3Event) {
 }
 
 func getMailFromS3(ctx context.Context, bucket string, key string) (m *parsemail.Email, err error) {
-	cfg, err := external.LoadDefaultAWSConfig()
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return
 	}
 
-	svc := s3.New(cfg)
-	req := svc.GetObjectRequest(&s3.GetObjectInput{
+	svc := s3.NewFromConfig(cfg)
+
+	resp, err := svc.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
-
-	resp, err := req.Send(ctx)
 	if err != nil {
 		return
 	}
@@ -115,7 +115,7 @@ func decodeAttachment(msg *parsemail.Email) (res []byte, err error) {
 	switch ct {
 	case "application/zip;":
 		// parsemail will decode the file for us.
-		content, err = ioutil.ReadAll(msg.Content)
+		content, _ = ioutil.ReadAll(msg.Content)
 		return unzip(content)
 	case "multipart/mixed;":
 		for _, f := range msg.Attachments {
@@ -216,13 +216,13 @@ func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback, fd []b
 		XML:              string(fd),
 	}
 
-	cfg, err := external.LoadDefaultAWSConfig()
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return
 	}
 
-	svc := dynamodb.New(cfg)
-	av, err := dynamodbattribute.MarshalMap(entry)
+	svc := dynamodb.NewFromConfig(cfg)
+	av, err := attributevalue.MarshalMap(entry)
 	if err != nil {
 		return
 	}
@@ -232,8 +232,7 @@ func storeReport(ctx context.Context, s3Bucket, s3Key string, f Feedback, fd []b
 		TableName: aws.String(dynamoDBTableName),
 	}
 
-	req := svc.PutItemRequest(input)
-	_, err = req.Send(ctx)
+	_, err = svc.PutItem(ctx, input)
 
 	return
 }
@@ -286,25 +285,24 @@ func formatEmailMessage(f Feedback, i int) string {
 }
 
 func sendEmail(ctx context.Context, subject string, body string) (err error) {
-	cfg, err := external.LoadDefaultAWSConfig()
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return
 	}
 
 	em := ses.SendEmailInput{
-		Destination: &ses.Destination{ToAddresses: []string{mailTo}},
+		Destination: &types.Destination{ToAddresses: []string{mailTo}},
 		Source:      &mailFrom,
-		Message: &ses.Message{
-			Subject: &ses.Content{Data: &subject},
-			Body: &ses.Body{
-				Text: &ses.Content{Data: &body},
+		Message: &types.Message{
+			Subject: &types.Content{Data: &subject},
+			Body: &types.Body{
+				Text: &types.Content{Data: &body},
 			},
 		},
 	}
 
-	svc := ses.New(cfg)
-	req := svc.SendEmailRequest(&em)
-	_, err = req.Send(ctx)
+	svc := ses.NewFromConfig(cfg)
+	_, err = svc.SendEmail(ctx, &em)
 
 	return
 }
