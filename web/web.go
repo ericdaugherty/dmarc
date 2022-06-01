@@ -8,11 +8,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/dynamodbattribute"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 )
 
 type dbEntry struct {
@@ -86,21 +87,21 @@ func (*web) errorHandler(w http.ResponseWriter, r *http.Request, errorDesc strin
 
 func (*web) queryRecentReports(days int) (entries []aggEntry, err error) {
 
-	cfg, err := external.LoadDefaultAWSConfig()
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return
 	}
 
-	svc := dynamodb.New(cfg)
+	svc := dynamodb.NewFromConfig(cfg)
 
-	attributeValues := map[string]dynamodb.AttributeValue{}
+	attributeValues := map[string]types.AttributeValue{}
 	filterExpression := ""
 
 	current := time.Now().UTC()
 	for i := 0; i < days; i++ {
 		current = current.AddDate(0, 0, -1)
 		vName := fmt.Sprintf(":v%v", i)
-		attributeValues[vName] = dynamodb.AttributeValue{S: aws.String(current.Format("2006-01-02"))}
+		attributeValues[vName] = &types.AttributeValueMemberS{Value: current.Format("2006-01-02")}
 		or := ""
 		if i > 0 {
 			or = " OR "
@@ -113,9 +114,7 @@ func (*web) queryRecentReports(days int) (entries []aggEntry, err error) {
 		FilterExpression:          aws.String(filterExpression),
 		TableName:                 aws.String("dmarcReports"),
 	}
-	req := svc.ScanRequest(input)
-
-	result, err := req.Send(context.Background())
+	result, err := svc.Scan(context.TODO(), input)
 	if err != nil {
 		return
 	}
@@ -124,7 +123,7 @@ func (*web) queryRecentReports(days int) (entries []aggEntry, err error) {
 
 	for _, r := range result.Items {
 		var entry dbEntry
-		err = dynamodbattribute.UnmarshalMap(r, &entry)
+		err = attributevalue.UnmarshalMap(r, &entry)
 		if err != nil {
 			return
 		}
@@ -151,31 +150,28 @@ func (*web) queryRecentReports(days int) (entries []aggEntry, err error) {
 
 func (*web) getReports(date string) (entries []dbEntry, err error) {
 
-	cfg, err := external.LoadDefaultAWSConfig()
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return
 	}
 
-	svc := dynamodb.New(cfg)
+	svc := dynamodb.NewFromConfig(cfg)
 	input := &dynamodb.QueryInput{
-		ExpressionAttributeValues: map[string]dynamodb.AttributeValue{
-			":d": {
-				S: aws.String(date),
-			},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":d": &types.AttributeValueMemberS{Value: date},
 		},
 		KeyConditionExpression: aws.String("gmtDate = :d"),
 		TableName:              aws.String("dmarcReports"),
 	}
 
-	req := svc.QueryRequest(input)
-	result, err := req.Send(context.Background())
+	result, err := svc.Query(context.TODO(), input)
 	if err != nil {
 		return
 	}
 
 	for _, r := range result.Items {
 		var entry dbEntry
-		err = dynamodbattribute.UnmarshalMap(r, &entry)
+		err = attributevalue.UnmarshalMap(r, &entry)
 		if err != nil {
 			return
 		}
